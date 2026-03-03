@@ -1,0 +1,787 @@
+import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
+import { Label } from "@/components/ui/label";
+import { Badge } from "@/components/ui/badge";
+import { Textarea } from "@/components/ui/textarea";
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
+import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog";
+import { Avatar, AvatarImage, AvatarFallback } from "@/components/ui/avatar";
+import { Plus, Play, Pause, Trash2, Edit, User, Mic, Volume2, FileText, Settings, Download, Briefcase, UserSquare, Smile, FlaskConical, GraduationCap, Scale, Radio, BookOpen, Sparkles, Zap, Shirt, Heart, Beaker, Copy, Share2, Image as ImageIcon, Upload } from "lucide-react";
+import { useEffect, useState } from "react";
+import { useToast } from "@/hooks/use-toast";
+import { RadioGroup, RadioGroupItem } from "@/components/ui/radio-group";
+import professionalMaleImage from "@/assets/professional_male.jpg";
+import professionalFemaleImage from "@/assets/professional_female.jpg";
+import casualMaleImage from "@/assets/casual_male.jpg";
+import casualFemaleImage from "@/assets/casual_female.jpg";
+import scientistImage from "@/assets/scientist.jpg";
+import teacherImage from "@/assets/teacher.jpg";
+import heroBackground from "@/assets/hero-instructor.jpg";
+import classroomBackground from "@/assets/classroom.jpg";
+import computerLabBackground from "@/assets/computer_lab.jpg";
+import conferenceRoomBackground from "@/assets/conference_hall.jpg";
+import lectureHallBackground from "@/assets/lecture_hall.jpg";
+import manufacturingFloorBackground from "@/assets/manufacturing_floor.jpg";
+import libraryBackground from "@/assets/library.jpg";
+import { buildShareLink, generateMeetingId, loadSessions, saveSessions, SessionRecord } from "@/lib/sessionStorage";
+
+const AVATARS = [
+  { 
+    id: "professional-male", 
+    name: "Professional Male", 
+    description: "Formal business attire", 
+    icon: Briefcase,
+    imageUrl: professionalMaleImage
+  },
+  { 
+    id: "professional-female", 
+    name: "Professional Female", 
+    description: "Formal business attire", 
+    icon: Shirt,
+    imageUrl: professionalFemaleImage
+  },
+  { 
+    id: "casual-male", 
+    name: "Casual Male", 
+    description: "Friendly and approachable", 
+    icon: Smile,
+    imageUrl: casualMaleImage
+  },
+  { 
+    id: "casual-female", 
+    name: "Casual Female", 
+    description: "Friendly and approachable", 
+    icon: Heart,
+    imageUrl: casualFemaleImage
+  },
+  { 
+    id: "scientist", 
+    name: "Scientist", 
+    description: "Lab coat and glasses", 
+    icon: Beaker,
+    imageUrl: scientistImage
+  },
+  { 
+    id: "teacher", 
+    name: "Teacher", 
+    description: "Academic setting", 
+    icon: BookOpen,
+    imageUrl: teacherImage
+  },
+];
+
+const VOICES = [
+  { id: "alloy", name: "Alloy", description: "Neutral and balanced", icon: Scale },
+  { id: "echo", name: "Echo", description: "Clear and articulate", icon: Radio },
+  { id: "fable", name: "Fable", description: "Warm and engaging", icon: BookOpen },
+  { id: "onyx", name: "Onyx", description: "Deep and authoritative", icon: Volume2 },
+  { id: "nova", name: "Nova", description: "Energetic and friendly", icon: Zap },
+  { id: "shimmer", name: "Shimmer", description: "Soft and calm", icon: Sparkles },
+];
+
+interface InstructorConfig {
+  avatar: string;
+  voice: string;
+  courseName: string;
+  topic: string;
+  schedule: string;
+  duration: string;
+  content: string;
+  systemPrompt: string;
+  language: string;
+  background: string;
+  uploadedFiles?: Array<{ name: string; size: number; type: string }>;
+}
+
+const ManageSessions = () => {
+  const { toast } = useToast();
+  const [sessions, setSessions] = useState<SessionRecord[]>(() => loadSessions());
+
+  const [isDialogOpen, setIsDialogOpen] = useState(false);
+  const [isExportDialogOpen, setIsExportDialogOpen] = useState(false);
+  const [videoQuality, setVideoQuality] = useState("720p");
+  const [instructorConfig, setInstructorConfig] = useState<InstructorConfig>({
+    avatar: "",
+    voice: "",
+    courseName: "",
+    topic: "",
+    schedule: "",
+    duration: "60",
+    content: "",
+    systemPrompt: "You are a knowledgeable and patient AI instructor. Help students understand the material through clear explanations and examples.",
+    language: "en",
+    background: classroomBackground,
+  });
+
+  useEffect(() => {
+    const refreshSessions = () => {
+      setSessions(loadSessions());
+    };
+
+    window.addEventListener("virtual-instructor:sessions-updated", refreshSessions);
+    window.addEventListener("storage", refreshSessions);
+
+    return () => {
+      window.removeEventListener("virtual-instructor:sessions-updated", refreshSessions);
+      window.removeEventListener("storage", refreshSessions);
+    };
+  }, []);
+
+  const copySessionLink = async (link: string, { silent = false }: { silent?: boolean } = {}) => {
+    try {
+      if (typeof navigator !== "undefined" && navigator.clipboard?.writeText) {
+        await navigator.clipboard.writeText(link);
+        if (!silent) {
+          toast({
+            title: "Session link copied",
+            description: "Share this link with participants.",
+          });
+        }
+        return true;
+      }
+      throw new Error("Clipboard API unavailable");
+    } catch (error) {
+      console.error(error);
+      if (typeof window !== "undefined") {
+        window.prompt("Copy this session link:", link);
+      }
+
+      if (!silent) {
+        toast({
+          title: "Session link ready",
+          description: link,
+        });
+      }
+      return false;
+    }
+  };
+
+  const persistSessions = (nextSessions: SessionRecord[]) => {
+    setSessions(nextSessions);
+    saveSessions(nextSessions);
+  };
+
+  const updateSessionStatus = (sessionId: number, status: SessionRecord["status"]) => {
+    const updated = sessions.map((session) =>
+      session.id === sessionId ? { ...session, status } : session
+    );
+    persistSessions(updated);
+    toast({
+      title: "Session Updated",
+      description: `Session status changed to ${status}.`,
+    });
+  };
+
+  const removeSession = (sessionId: number) => {
+    const updated = sessions.filter((session) => session.id !== sessionId);
+    persistSessions(updated);
+    toast({
+      title: "Session Removed",
+      description: "The session has been removed from the schedule.",
+    });
+  };
+
+  const handleCreateSession = async () => {
+    if (!instructorConfig.avatar || !instructorConfig.voice || !instructorConfig.courseName) {
+      toast({
+        title: "Missing Information",
+        description: "Please fill in avatar, voice, and course name",
+        variant: "destructive",
+      });
+      return;
+    }
+
+    const nextId = sessions.length > 0 ? Math.max(...sessions.map((session) => session.id)) + 1 : 1;
+    const meetingId = generateMeetingId();
+    const shareLink = buildShareLink(meetingId);
+
+    const newSession: SessionRecord = {
+      id: nextId,
+      course: instructorConfig.courseName,
+      instructor: `AI Instructor (${AVATARS.find(a => a.id === instructorConfig.avatar)?.name})`,
+      status: "Scheduled",
+      students: 0,
+      duration: "Not started",
+      config: { ...instructorConfig },
+      meetingId,
+      shareLink,
+    };
+
+    const updatedSessions = [...sessions, newSession];
+    persistSessions(updatedSessions);
+    setIsDialogOpen(false);
+    setInstructorConfig({
+      avatar: "",
+      voice: "",
+      courseName: "",
+      topic: "",
+      schedule: "",
+      duration: "60",
+      content: "",
+      systemPrompt: "You are a knowledgeable and patient AI instructor. Help students understand the material through clear explanations and examples.",
+      language: "en",
+      background: classroomBackground,
+    });
+
+    const copied = await copySessionLink(shareLink, { silent: true });
+
+    toast({
+      title: "Session Created",
+      description: copied
+        ? `Meeting ID ${meetingId} generated. Share link copied to your clipboard.`
+        : `Meeting ID ${meetingId} generated. Share link: ${shareLink}`,
+    });
+  };
+
+  const handleExportVideo = () => {
+    // Simulate video export
+    const link = document.createElement('a');
+    link.href = 'https://www.w3schools.com/html/mov_bbb.mp4'; // Dummy video
+    link.download = `instructor-session-${videoQuality}.mp4`;
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
+    
+    setIsExportDialogOpen(false);
+    toast({
+      title: "Export Started",
+      description: `Exporting video in ${videoQuality} quality`,
+    });
+  };
+
+  const handleFileUpload = (event: React.ChangeEvent<HTMLInputElement>) => {
+    const files = event.target.files;
+    if (!files || files.length === 0) return;
+
+    const validTypes = [
+      'application/pdf',
+      'application/msword',
+      'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
+      'application/vnd.ms-powerpoint',
+      'application/vnd.openxmlformats-officedocument.presentationml.presentation'
+    ];
+
+    const uploadedFiles = Array.from(files)
+      .filter(file => validTypes.includes(file.type))
+      .map(file => ({
+        name: file.name,
+        size: file.size,
+        type: file.type
+      }));
+
+    if (uploadedFiles.length === 0) {
+      toast({
+        title: "Invalid File Type",
+        description: "Please upload only .pdf, .doc, .docx, .ppt, or .pptx files",
+        variant: "destructive"
+      });
+      return;
+    }
+
+    const existingFiles = instructorConfig.uploadedFiles || [];
+    setInstructorConfig({
+      ...instructorConfig,
+      uploadedFiles: [...existingFiles, ...uploadedFiles]
+    });
+
+    toast({
+      title: "Files Uploaded",
+      description: `${uploadedFiles.length} file(s) added to course materials`
+    });
+  };
+
+  const removeUploadedFile = (index: number) => {
+    const updatedFiles = instructorConfig.uploadedFiles?.filter((_, i) => i !== index) || [];
+    setInstructorConfig({
+      ...instructorConfig,
+      uploadedFiles: updatedFiles
+    });
+  };
+
+  return (
+    <div className="p-8 space-y-6">
+      <div className="flex justify-between items-center">
+        <div>
+          <h1 className="text-3xl font-bold text-foreground">Manage Virtual Instructor Sessions</h1>
+          <p className="text-muted-foreground">Create and control AI instructor sessions</p>
+        </div>
+        <Dialog open={isDialogOpen} onOpenChange={setIsDialogOpen}>
+          <DialogTrigger asChild>
+            <Button className="gap-2">
+              <Plus className="h-4 w-4" />
+              Create New Session
+            </Button>
+          </DialogTrigger>
+          <DialogContent className="max-w-4xl max-h-[90vh] overflow-y-auto">
+            <DialogHeader>
+              <DialogTitle>Create Virtual Instructor</DialogTitle>
+            </DialogHeader>
+            
+            <div className="space-y-6 py-4">
+              {/* Avatar Selection */}
+              <div className="space-y-3">
+                <div className="flex items-center gap-2">
+                  <User className="h-5 w-5 text-primary" />
+                  <Label className="text-lg font-semibold">Choose Avatar Character</Label>
+                </div>
+                <div className="grid grid-cols-3 gap-3">
+                  {AVATARS.map((avatar) => {
+                    const IconComponent = avatar.icon;
+                    return (
+                      <button
+                        key={avatar.id}
+                        onClick={() => setInstructorConfig({ ...instructorConfig, avatar: avatar.id })}
+                        className={`p-4 border-2 rounded-lg text-left transition-all relative ${
+                          instructorConfig.avatar === avatar.id
+                            ? "border-primary bg-secondary"
+                            : "border-border hover:border-primary/50"
+                        }`}
+                      >
+                        {/* Icon Badge */}
+                        <div className="absolute top-2 right-2 p-1.5 rounded-full bg-primary/10 border border-primary/20">
+                          <IconComponent className="h-4 w-4 text-primary" />
+                        </div>
+                        
+                        <div className="flex flex-col items-center gap-2 mb-2 pt-1">
+                          <Avatar className="w-20 h-20 border-2 border-border">
+                            <AvatarImage 
+                              src={avatar.imageUrl} 
+                              alt={avatar.name}
+                              className="object-cover"
+                            />
+                            <AvatarFallback className="bg-primary/10">
+                              <IconComponent className="h-8 w-8 text-primary" />
+                            </AvatarFallback>
+                          </Avatar>
+                        </div>
+                        <div className="font-semibold text-foreground text-center">{avatar.name}</div>
+                        <div className="text-sm text-muted-foreground text-center">{avatar.description}</div>
+                      </button>
+                    );
+                  })}
+                </div>
+              </div>
+
+              {/* Background Selection */}
+              <div className="space-y-3">
+                <div className="flex items-center gap-2">
+                  <ImageIcon className="h-5 w-5 text-primary" />
+                  <Label className="text-lg font-semibold">Background</Label>
+                </div>
+                <div className="grid grid-cols-3 gap-3">
+                  {[
+                    { id: "bg-classroom", name: "Classroom (Default)", url: classroomBackground },
+                    { id: "bg-lecture-hall", name: "Lecture Hall", url: lectureHallBackground },
+                    { id: "bg-computer-lab", name: "Computer Lab", url: computerLabBackground },
+                    { id: "bg-conference-room", name: "Conference Room", url: conferenceRoomBackground },
+                    { id: "bg-library", name: "Library", url: libraryBackground },
+                    { id: "bg-manufacturing", name: "Manufacturing Floor", url: manufacturingFloorBackground },
+                    { id: "bg-gradient-1", name: "Purple Gradient", url: "data:gradient/purple" },
+                    { id: "bg-gradient-2", name: "Blue Gradient", url: "data:gradient/blue" },
+                    { id: "bg-lab", name: "Science Lab", url: heroBackground },
+                  ].map((bg) => (
+                    <button
+                      key={bg.id}
+                      onClick={() => setInstructorConfig({ ...instructorConfig, background: bg.url })}
+                      className={`p-2 border-2 rounded-lg transition-all ${
+                        instructorConfig.background === bg.url
+                          ? "border-primary bg-secondary"
+                          : "border-border hover:border-primary/50"
+                      }`}
+                      title={bg.name}
+                    >
+                      <div className="aspect-video w-full overflow-hidden rounded-md border border-border">
+                        {bg.url.startsWith("data:gradient/") ? (
+                          <div
+                            className={`h-full w-full ${
+                              bg.url.endsWith("purple")
+                                ? "bg-gradient-to-br from-fuchsia-500/40 via-purple-500/30 to-indigo-500/40"
+                                : "bg-gradient-to-br from-sky-500/40 via-cyan-500/30 to-blue-500/40"
+                            }`}
+                          />
+                        ) : (
+                          <img src={bg.url} alt={bg.name} className="h-full w-full object-cover" />
+                        )}
+                      </div>
+                      <div className="mt-2 text-center text-sm text-foreground">{bg.name}</div>
+                    </button>
+                  ))}
+                </div>
+                <div className="grid grid-cols-3 gap-3">
+                  <label
+                    className="col-span-3 flex cursor-pointer items-center justify-center gap-2 rounded-lg border-2 border-dashed border-border p-4 text-sm hover:border-primary/50"
+                  >
+                    <Upload className="h-4 w-4 text-muted-foreground" />
+                    <span className="text-muted-foreground">Upload custom background image</span>
+                    <input
+                      type="file"
+                      accept="image/*"
+                      className="hidden"
+                      onChange={(e) => {
+                        const file = e.target.files?.[0];
+                        if (!file) return;
+                        const reader = new FileReader();
+                        reader.onload = () => {
+                          const dataUrl = typeof reader.result === "string" ? reader.result : "";
+                          setInstructorConfig({ ...instructorConfig, background: dataUrl });
+                        };
+                        reader.readAsDataURL(file);
+                      }}
+                    />
+                  </label>
+                </div>
+                <div className="rounded-lg border border-border p-3">
+                  <div className="mb-2 text-sm font-medium text-foreground">Visual Preview</div>
+                  <div className="relative aspect-video w-full overflow-hidden rounded-md border border-border">
+                    {/* Background */}
+                    {instructorConfig.background && instructorConfig.background.startsWith("data:gradient/") ? (
+                      <div
+                        className={`h-full w-full ${
+                          instructorConfig.background.endsWith("purple")
+                            ? "bg-gradient-to-br from-fuchsia-500/40 via-purple-500/30 to-indigo-500/40"
+                            : "bg-gradient-to-br from-sky-500/40 via-cyan-500/30 to-blue-500/40"
+                        }`}
+                      />
+                    ) : (
+                      <img
+                        src={instructorConfig.background || classroomBackground}
+                        alt="Selected background"
+                        className="h-full w-full object-cover"
+                      />
+                    )}
+                    {/* Avatar overlay at bottom center with zero bottom padding */}
+                    {instructorConfig.avatar && (() => {
+                      const selectedAvatar = AVATARS.find(a => a.id === instructorConfig.avatar);
+                      return selectedAvatar ? (
+                        <div className="absolute bottom-0 left-1/2 -translate-x-1/2 pb-0">
+                          <img
+                            src={selectedAvatar.imageUrl}
+                            alt={selectedAvatar.name}
+                            className="h-auto max-h-[60%] w-auto object-contain"
+                          />
+                        </div>
+                      ) : null;
+                    })()}
+                  </div>
+                </div>
+              </div>
+
+              {/* Voice Selection */}
+              <div className="space-y-3">
+                <div className="flex items-center gap-2">
+                  <Volume2 className="h-5 w-5 text-primary" />
+                  <Label className="text-lg font-semibold">Voice Configuration</Label>
+                </div>
+                <div className="grid grid-cols-2 gap-3">
+                  {VOICES.map((voice) => {
+                    const IconComponent = voice.icon;
+                    return (
+                      <button
+                        key={voice.id}
+                        onClick={() => setInstructorConfig({ ...instructorConfig, voice: voice.id })}
+                        className={`p-4 border-2 rounded-lg text-left transition-all ${
+                          instructorConfig.voice === voice.id
+                            ? "border-primary bg-secondary"
+                            : "border-border hover:border-primary/50"
+                        }`}
+                      >
+                        <div className="flex items-center gap-3 mb-2">
+                          <div className="w-10 h-10 rounded-full bg-primary/10 flex items-center justify-center">
+                            <IconComponent className="h-5 w-5 text-primary" />
+                          </div>
+                          <div className="font-semibold text-foreground">{voice.name}</div>
+                        </div>
+                        <div className="text-sm text-muted-foreground">{voice.description}</div>
+                      </button>
+                    );
+                  })}
+                </div>
+                
+                <div className="grid grid-cols-2 gap-4 pt-2">
+                  <div className="space-y-2">
+                    <Label>Language</Label>
+                    <Select value={instructorConfig.language} onValueChange={(value) => setInstructorConfig({ ...instructorConfig, language: value })}>
+                      <SelectTrigger>
+                        <SelectValue />
+                      </SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value="en">English</SelectItem>
+                        <SelectItem value="es">Spanish</SelectItem>
+                        <SelectItem value="fr">French</SelectItem>
+                        <SelectItem value="de">German</SelectItem>
+                        <SelectItem value="zh">Chinese</SelectItem>
+                        <SelectItem value="ja">Japanese</SelectItem>
+                      </SelectContent>
+                    </Select>
+                  </div>
+                </div>
+              </div>
+
+              {/* Course Details */}
+              <div className="space-y-3">
+                <div className="flex items-center gap-2">
+                  <FileText className="h-5 w-5 text-primary" />
+                  <Label className="text-lg font-semibold">Course Details</Label>
+                </div>
+                <div className="grid grid-cols-2 gap-4">
+                  <div className="space-y-2">
+                    <Label htmlFor="course">Course Name *</Label>
+                    <Input 
+                      id="course" 
+                      placeholder="e.g., Advanced Mathematics" 
+                      value={instructorConfig.courseName}
+                      onChange={(e) => setInstructorConfig({ ...instructorConfig, courseName: e.target.value })}
+                    />
+                  </div>
+                  <div className="space-y-2">
+                    <Label htmlFor="topic">Topic</Label>
+                    <Input 
+                      id="topic" 
+                      placeholder="e.g., Linear Algebra" 
+                      value={instructorConfig.topic}
+                      onChange={(e) => setInstructorConfig({ ...instructorConfig, topic: e.target.value })}
+                    />
+                  </div>
+                  <div className="space-y-2">
+                    <Label htmlFor="schedule">Schedule</Label>
+                    <Input 
+                      id="schedule" 
+                      type="datetime-local" 
+                      value={instructorConfig.schedule}
+                      onChange={(e) => setInstructorConfig({ ...instructorConfig, schedule: e.target.value })}
+                    />
+                  </div>
+                  <div className="space-y-2">
+                    <Label htmlFor="duration">Duration (minutes)</Label>
+                    <Input 
+                      id="duration" 
+                      type="number" 
+                      placeholder="60" 
+                      value={instructorConfig.duration}
+                      onChange={(e) => setInstructorConfig({ ...instructorConfig, duration: e.target.value })}
+                    />
+                  </div>
+                </div>
+              </div>
+
+              {/* Content & Instructions */}
+              <div className="space-y-3">
+                <div className="flex items-center gap-2">
+                  <Settings className="h-5 w-5 text-primary" />
+                  <Label className="text-lg font-semibold">Content & Instructions</Label>
+                </div>
+                <div className="space-y-4">
+                  <div className="space-y-2">
+                    <Label htmlFor="content">Course Content & Materials</Label>
+                    <Textarea 
+                      id="content"
+                      placeholder="Provide the course content, learning objectives, key concepts, and any materials the AI instructor should cover..."
+                      className="min-h-[120px]"
+                      value={instructorConfig.content}
+                      onChange={(e) => setInstructorConfig({ ...instructorConfig, content: e.target.value })}
+                    />
+                  </div>
+                  
+                  {/* File Upload Section */}
+                  <div className="space-y-2">
+                    <Label htmlFor="file-upload">Upload Course Materials</Label>
+                    <div className="flex items-center gap-2">
+                      <Input
+                        id="file-upload"
+                        type="file"
+                        accept=".pdf,.doc,.docx,.ppt,.pptx"
+                        multiple
+                        onChange={handleFileUpload}
+                        className="cursor-pointer"
+                      />
+                      <Button
+                        type="button"
+                        variant="outline"
+                        size="icon"
+                        onClick={() => document.getElementById('file-upload')?.click()}
+                      >
+                        <Upload className="h-4 w-4" />
+                      </Button>
+                    </div>
+                    <p className="text-xs text-muted-foreground">
+                      Accepted formats: PDF, DOC, DOCX, PPT, PPTX
+                    </p>
+                    
+                    {/* Display uploaded files */}
+                    {instructorConfig.uploadedFiles && instructorConfig.uploadedFiles.length > 0 && (
+                      <div className="mt-2 space-y-2">
+                        {instructorConfig.uploadedFiles.map((file, index) => (
+                          <div
+                            key={index}
+                            className="flex items-center justify-between p-2 border border-border rounded-lg bg-muted/50"
+                          >
+                            <div className="flex items-center gap-2 flex-1 min-w-0">
+                              <FileText className="h-4 w-4 text-primary flex-shrink-0" />
+                              <span className="text-sm truncate">{file.name}</span>
+                              <span className="text-xs text-muted-foreground flex-shrink-0">
+                                ({(file.size / 1024).toFixed(1)} KB)
+                              </span>
+                            </div>
+                            <Button
+                              type="button"
+                              variant="ghost"
+                              size="sm"
+                              onClick={() => removeUploadedFile(index)}
+                            >
+                              <Trash2 className="h-4 w-4 text-destructive" />
+                            </Button>
+                          </div>
+                        ))}
+                      </div>
+                    )}
+                  </div>
+                  
+                  <div className="space-y-2">
+                    <Label htmlFor="systemPrompt">AI Instructor System Prompt</Label>
+                    <Textarea 
+                      id="systemPrompt"
+                      placeholder="Define how the AI instructor should behave, its teaching style, personality..."
+                      className="min-h-[100px]"
+                      value={instructorConfig.systemPrompt}
+                      onChange={(e) => setInstructorConfig({ ...instructorConfig, systemPrompt: e.target.value })}
+                    />
+                  </div>
+                </div>
+              </div>
+
+              <div className="grid grid-cols-2 gap-4">
+                <Button onClick={handleCreateSession} className="w-full">
+                  Create New Session
+                </Button>
+                <Dialog open={isExportDialogOpen} onOpenChange={setIsExportDialogOpen}>
+                  <DialogTrigger asChild>
+                    <Button variant="outline" className="w-full gap-2">
+                      <Download className="h-4 w-4" />
+                      Download Video
+                    </Button>
+                  </DialogTrigger>
+                  <DialogContent className="sm:max-w-md">
+                    <DialogHeader>
+                      <DialogTitle>Export Video</DialogTitle>
+                    </DialogHeader>
+                    <div className="space-y-4 py-4">
+                      <p className="text-sm text-muted-foreground">
+                        Choose video quality to export
+                      </p>
+                      <RadioGroup value={videoQuality} onValueChange={setVideoQuality}>
+                        <div className="flex items-center space-x-2 p-3 border border-border rounded-lg hover:bg-muted/50 transition-colors">
+                          <RadioGroupItem value="480p" id="480p" />
+                          <Label htmlFor="480p" className="flex-1 cursor-pointer">480p (SD)</Label>
+                        </div>
+                        <div className="flex items-center space-x-2 p-3 border border-border rounded-lg hover:bg-muted/50 transition-colors">
+                          <RadioGroupItem value="720p" id="720p" />
+                          <Label htmlFor="720p" className="flex-1 cursor-pointer">720p (HD)</Label>
+                        </div>
+                        <div className="flex items-center space-x-2 p-3 border border-border rounded-lg hover:bg-muted/50 transition-colors">
+                          <RadioGroupItem value="1080p" id="1080p" />
+                          <Label htmlFor="1080p" className="flex-1 cursor-pointer">1080p (Full HD)</Label>
+                        </div>
+                      </RadioGroup>
+                      <Button onClick={handleExportVideo} className="w-full gap-2">
+                        <Download className="h-4 w-4" />
+                        Download
+                      </Button>
+                    </div>
+                  </DialogContent>
+                </Dialog>
+              </div>
+            </div>
+          </DialogContent>
+        </Dialog>
+      </div>
+
+      <Card>
+        <CardHeader>
+          <CardTitle>Active & Scheduled Sessions</CardTitle>
+        </CardHeader>
+        <CardContent>
+          <div className="space-y-4">
+            {sessions.map((session) => (
+              <div key={session.id} className="flex items-center justify-between p-4 border border-border rounded-lg hover:bg-muted/50 transition-colors">
+                <div className="space-y-1">
+                  <h3 className="font-semibold text-foreground">{session.course}</h3>
+                  <div className="flex items-center gap-4 text-sm text-muted-foreground">
+                    <span>{session.instructor}</span>
+                    <span>•</span>
+                    <span>{session.students} students</span>
+                    <span>•</span>
+                    <span>{session.duration}</span>
+                  </div>
+                  {session.config?.schedule && typeof session.config.schedule === 'string' && (
+                    <div className="flex items-center gap-2 text-sm text-muted-foreground">
+                      <span className="font-medium text-foreground">Scheduled:</span>
+                      <span>{new Date(session.config.schedule).toLocaleString()}</span>
+                      {session.config?.duration && typeof session.config.duration === 'string' && (
+                        <>
+                          <span>•</span>
+                          <span>{session.config.duration} minutes</span>
+                        </>
+                      )}
+                    </div>
+                  )}
+                  <div className="mt-2 flex flex-wrap items-center gap-2 text-sm">
+                    <span className="font-medium text-foreground">Meeting ID:</span>
+                    <span className="font-mono text-xs sm:text-sm">{session.meetingId}</span>
+                    <Button
+                      size="sm"
+                      variant="outline"
+                      className="gap-2"
+                      onClick={() => copySessionLink(session.shareLink)}
+                    >
+                      <Copy className="h-4 w-4" />
+                      Copy Link
+                    </Button>
+                    <Button
+                      size="sm"
+                      variant="outline"
+                      className="gap-2"
+                      onClick={() => {
+                        if (typeof window !== "undefined") {
+                          window.open(session.shareLink, "_blank", "noopener,noreferrer");
+                        }
+                      }}
+                    >
+                      <Share2 className="h-4 w-4" />
+                      Open Room
+                    </Button>
+                  </div>
+                </div>
+                <div className="flex items-center gap-3">
+                  <Badge variant={session.status === "Active" ? "default" : session.status === "Scheduled" ? "secondary" : "outline"}>
+                    {session.status}
+                  </Badge>
+                  <div className="flex gap-2">
+                    {session.status === "Active" && (
+                      <Button size="sm" variant="outline" onClick={() => updateSessionStatus(session.id, "Scheduled")}>
+                        <Pause className="h-4 w-4" />
+                      </Button>
+                    )}
+                    {session.status === "Scheduled" && (
+                      <Button size="sm" variant="outline" onClick={() => updateSessionStatus(session.id, "Active")}>
+                        <Play className="h-4 w-4" />
+                      </Button>
+                    )}
+                    <Button size="sm" variant="outline" onClick={() => updateSessionStatus(session.id, "Completed")}>
+                      <Edit className="h-4 w-4" />
+                    </Button>
+                    <Button size="sm" variant="outline" onClick={() => removeSession(session.id)}>
+                      <Trash2 className="h-4 w-4" />
+                    </Button>
+                  </div>
+                </div>
+              </div>
+            ))}
+          </div>
+        </CardContent>
+      </Card>
+    </div>
+  );
+};
+
+export default ManageSessions;
